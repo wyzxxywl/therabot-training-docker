@@ -1,0 +1,8 @@
+bitsandbytes
+peft
+accelerate
+datasets
+trl
+safetensors
+wandb
+tokenizers
