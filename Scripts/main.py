@@ -1,4 +1,5 @@
 import argparse
+import os
 from train import training_function
 
 def parse_arge():
@@ -14,8 +15,9 @@ def parse_arge():
     parser.add_argument("--resume_from_checkpoint", type=bool, default=False, help="Continue training this checkpoint")
     parser.add_argument("--train_dataset_path", type=str, default="Data/all.json", help="Path to train dataset.")
     parser.add_argument("--max_steps", type=int, default=100, help="Number of steps to train for.")
-    parser.add_argument("--wandb_key", type=int, required=True, help="Your wandb API key")
-    parser.add_argument("--hf_key", type=int, required=True, help="Your huggingface API key")
+    parser.add_argument("--wandb_key", type=str, required=True, help="Your wandb API key")
+    parser.add_argument("--hf_key", type=str, required=True, help="Your huggingface API key")
+    parser.add_argument("--flash_attn", type=bool, default=False, help="To use flash attention or not")
     parser.add_argument(
         "--per_device_train_batch_size",
         type=int,
@@ -29,7 +31,7 @@ def parse_arge():
     parser.add_argument(
         "--merge_weights",
         type=bool,
-        default=True,
+        default=False,
         help="Whether to merge LoRA weights with base model.",
     )
     parser.add_argument(
@@ -41,7 +43,7 @@ def parse_arge():
     parser.add_argument(
         "--adapter_checkpoints",
         type=bool,
-        default=False,
+        default=True,
         help="Whether should save the LoRA weights",
     )
     args = parser.parse_known_args()

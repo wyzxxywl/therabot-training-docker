@@ -9,7 +9,7 @@ from transformers import (
     BitsAndBytesConfig,
 )
 from trl import SFTTrainer, SFTConfig
-from datasets import load_from_disk
+from datasets import load_dataset
 from transformers.trainer_utils import get_last_checkpoint
 from peft import LoraConfig, prepare_model_for_kbit_training
 from merge import merge
@@ -17,8 +17,8 @@ from tokenizer_config import load_tokenizer
 
 def load_model_and_config(args):
     #use bf16 and FlashAttention if supported
-    if torch.cuda.is_bf16_supported():
-        os.system('pip install flash_attn')
+    if torch.cuda.is_bf16_supported() and args.flash_attn:
+        os.system('pip install flash-attn==2.6.3')
         compute_dtype = torch.bfloat16
         attn_implementation = 'flash_attention_2'
     else:
@@ -40,14 +40,14 @@ def load_model_and_config(args):
             device_map="auto",
             quantization_config=bnb_config,
             attn_implementation=attn_implementation,
-            use_auth_token = args.hf_key
+            token = args.hf_key
         )
     else:
         model = AutoModelForCausalLM.from_pretrained(
             args.model_id,
             device_map="auto",
             attn_implementation=attn_implementation,
-            use_auth_token = args.hf_key
+            token = args.hf_key
         )
     
     model = prepare_model_for_kbit_training(model, gradient_checkpointing_kwargs={'use_reentrant':True})
@@ -67,10 +67,10 @@ def load_model_and_config(args):
 
     # set where and how to sage adapter endpoints
     if args.adapter_checkpoints:
-        output_dir = "./checkpoints/"
+        output_dir = f"./Output/{args.model_id}/checkpoints"
         save_strategy = "steps"
     else:
-        output_dir = "./final_adapter/"
+        output_dir = f"./Output/{args.model_id}/final_adapter"
         save_strategy = "no"
 
     return model, tokenizer, peft_config, output_dir, save_strategy, bnb_config
@@ -90,8 +90,8 @@ def begin_training(args, output_dir, save_strategy, model, tokenizer, peft_confi
         logging_dir=f"{output_dir}/logs/",
         logging_strategy="steps",
         save_strategy = save_strategy,
-        save_steps = 50,
-        save_total_limit = 30,
+        save_steps = 10,
+        save_total_limit = 10,
         logging_steps=10,
         warmup_ratio = 0.1,
         lr_scheduler_type = "linear",
@@ -102,7 +102,7 @@ def begin_training(args, output_dir, save_strategy, model, tokenizer, peft_confi
     # Create Trainer instance
     trainer = SFTTrainer(
         model=model,
-        tokenizer=tokenizer,
+        processing_class = tokenizer,
         peft_config=peft_config,
         args=training_args,
         train_dataset=train_dataset,
@@ -120,7 +120,7 @@ def begin_training(args, output_dir, save_strategy, model, tokenizer, peft_confi
     del trainer
     torch.cuda.empty_cache()
 
-def merge_and_save(args, output_dir):
+def merge_and_save(args, output_dir, bnb_config):
     # final adapter
     final_adapter = get_last_checkpoint(output_dir) if args.adapter_checkpoints else output_dir
     
@@ -132,7 +132,7 @@ def merge_and_save(args, output_dir):
             final_adapter,
             torch_dtype=torch.float16,
             trust_remote_code=True,
-            use_auth_token = args.hf_key
+            token = args.hf_key
         )  
         # Merge LoRA and base model and save
         merged_model = model.merge_and_unload()
@@ -140,7 +140,9 @@ def merge_and_save(args, output_dir):
         tokenizer = AutoTokenizer.from_pretrained(final_adapter, trust_remote_code=True)
         tokenizer.save_pretrained("./model/")
     elif args.merge_weights and args.load_in_4bit:
-        merge(final_adapter, args)
+        merge(final_adapter, args, bnb_config)
+    else:
+        return
 
 def training_function(args):
     # set seed
@@ -148,7 +150,7 @@ def training_function(args):
     # report to wandb
     wandb.login(key=args.wandb_key)
     # load train Datasets
-    train_dataset = load_from_disk(args.train_dataset_path)
+    train_dataset = load_dataset("json", data_files=args.train_dataset_path)["train"]
     # load model and config
     model, tokenizer, peft_config, output_dir, save_strategy, bnb_config = load_model_and_config(args)
     # start training

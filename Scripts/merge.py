@@ -37,8 +37,9 @@ def dequantize_model(model, to='./dequantized_model', dtype=torch.float16, devic
     with torch.no_grad():
         for name, module in model.named_modules():
             if isinstance(module, cls):
+                print(f"Dequantizing `{name}`...")
                 quant_state = copy.deepcopy(module.weight.quant_state)
-                quant_state[2] = dtype
+                quant_state.dtype = dtype
 
                 weights = dequantize_4bit(module.weight.data, quant_state=quant_state, quant_type="nf4").to(dtype)
 
@@ -68,27 +69,24 @@ def merge(adapter, args, quantization_config):
 
     model_name = args.model_id
     tokenizer = load_tokenizer(args)
-
-    if torch.cuda.is_bf16_supported():
-        compute_dtype = torch.bfloat16
-        attn_implementation = 'flash_attention_2'
-    else:
-        compute_dtype = torch.float16
-        attn_implementation = 'sdpa'
+    compute_dtype = torch.float16
 
     try:
         print(f"Starting to load the model {model_name} into memory")
 
         model = AutoModelForCausalLM.from_pretrained(
-            args.model_id,
+            model_name,
             device_map="auto",
             quantization_config=quantization_config,
-            attn_implementation=attn_implementation,
-            use_auth_token = args.hf_key
+            torch_dtype=compute_dtype,
+            token = args.hf_key
         )
         model = dequantize_model(model, to='./dqz_model/',dtype=compute_dtype)
+        print(model)
         model = PeftModel.from_pretrained(model, adapter)
+        print(model)
         model = model.merge_and_unload()
+        print(model)
 
         print(f"Successfully loaded the model {model_name} into memory")
         save_model(model, tokenizer, "./model/") # changed

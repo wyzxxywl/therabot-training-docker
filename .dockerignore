@@ -1,0 +1,8 @@
+secrets.md
+checkpoints
+dqz_model
+model
+final_adapter
+tmp
+wandb
+*.tar
